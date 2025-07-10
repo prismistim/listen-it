@@ -24,6 +24,8 @@ type MappedNote = {
   url: string
 }
 
+const KV_KEY = 'lastNoteId'
+
 export default {
   async fetch(req) {
     return new Response('This is a Scheduled Worker. It does not respond to fetch requests.')
@@ -31,11 +33,12 @@ export default {
 
   // The scheduled handler is invoked at the interval set in our wrangler.jsonc's
   // [[triggers]] configuration.
-  async scheduled(event, env, ctx): Promise<void> {
-    const sinceId = '' // 取得したノートのIDをどこかに保管
+  async scheduled(_event, env, _ctx): Promise<void> {
+    const sinceId = await env.note_id.get(KV_KEY) // 取得したノートのIDをどこかに保管
+    console.log(`Last note ID: ${sinceId}`)
 
     // Misskeyからの対象のノート取得
-    const fetchTargetNotes = async (sinceId: string): Promise<ResponseNotesSearchByTag> => {
+    const fetchTargetNotes = async (sinceId: string | null): Promise<ResponseNotesSearchByTag> => {
       const res = await fetch(`https://${env.MISSKEY_HOST}/api/notes/search-by-tag`, {
         method: 'POST',
         headers: {
@@ -43,7 +46,8 @@ export default {
         },
         body: JSON.stringify({
           tag: 'listen_it',
-          limit: 100
+          limit: 100,
+          ...(sinceId ? { sinceId: sinceId } : {})
         })
       })
 
@@ -77,28 +81,52 @@ export default {
     }
 
     try {
-      const notes = (await fetchTargetNotes(sinceId)).filter((item, index) => {
-          if (parseUrl(item.text) === null) return false // URLが含まれていないノートは除外
-          if (item.userId === env.MISSKEY_BOT_USER_ID) return false // Bot自身のノートは除外
-          return true
+      const targetUsers: string[] = []
+
+      const response = await fetchTargetNotes(sinceId)
+      console.log(`Fetched ${response.length} notes.`)
+
+      if (response.length === 0) {
+        throw new Error('No notes found.')
+      }
+
+      let notes = response.filter((item) => {
+        if (parseUrl(item.text) === null) return false // URLが含まれていないノートは除外
+        if (item.userId === env.MISSKEY_BOT_USER_ID) return false // Bot自身のノートは除外
+        return true
       })
 
       if (notes.length === 0) {
         throw new Error('No notes found.')
       }
 
-      const targetIndex = generateRandomNumbers(notes.length)
+      if (notes.length > 5) {
+        notes = notes.filter((item) => {
+          if (targetUsers.includes(item.userId)) return false // 既に収集済みのユーザーは除外
+          targetUsers.push(item.userId)
+          return true
+        })
+      }
 
-      const mappedNotes: MappedNote[] = notes.filter((_item, index) => {
-        return targetIndex.includes(index) // 5件以上のノートがある場合、ランダムに選択されたインデックス以外は除外
-      }).map((item) => {
+      if (notes.length > 5) {
+        const targetIndex = generateRandomNumbers(notes.length)
+
+        notes = notes.filter((_item, index) => {
+          return targetIndex.includes(index) // 5件以上のノートがある場合、ランダムに選択されたインデックス以外は除外
+        })
+      }
+
+      const mappedNotes: MappedNote[] = notes.map((item) => {
         return {
           userName: item.user.username,
           url: parseUrl(item.text) || ''
         }
       })
 
-      createNote(mappedNotes)
+      await createNote(mappedNotes)
+      await env.note_id.put('lastNoteId', response[0].id) // 取得したノートのIDを保存
+
+      console.log(`Created note with ${mappedNotes.length} items.`)
     } catch (error) {
       console.error('Error:', error)
       return
