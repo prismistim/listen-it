@@ -15,28 +15,93 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
+import type { RequestNotesCreate, ResponseNotesSearchByTag } from './types/MisskeyApi'
+import { generateRandomNumbers } from './utils/random'
+import { parseUrl } from './utils/textParser'
+
+type MappedNote = {
+  userName: string
+  url: string
+}
+
 export default {
   async fetch(req) {
-    const url = new URL(req.url)
-    url.pathname = '/__scheduled'
-    url.searchParams.append('cron', '* * * * *')
-    return new Response(
-      `To test the scheduled handler, ensure you have used the "--test-scheduled" then try running "curl ${url.href}".`
-    )
+    return new Response('This is a Scheduled Worker. It does not respond to fetch requests.')
   },
 
   // The scheduled handler is invoked at the interval set in our wrangler.jsonc's
   // [[triggers]] configuration.
   async scheduled(event, env, ctx): Promise<void> {
-    // A Cron Trigger can make requests to other endpoints on the Internet,
-    // publish to a Queue, query a D1 Database, and much more.
-    //
-    // We'll keep it simple and make an API call to a Cloudflare API:
-    const resp = await fetch('https://api.cloudflare.com/client/v4/ips')
-    const wasSuccessful = resp.ok ? 'success' : 'fail'
+    const sinceId = '' // 取得したノートのIDをどこかに保管
 
-    // You could store this result in KV, write to a D1 Database, or publish to a Queue.
-    // In this template, we'll just log the result:
-    console.log(`trigger fired at ${event.cron}: ${wasSuccessful}`)
+    // Misskeyからの対象のノート取得
+    const fetchTargetNotes = async (sinceId: string): Promise<ResponseNotesSearchByTag> => {
+      const res = await fetch(`https://${env.MISSKEY_HOST}/api/notes/search-by-tag`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          tag: 'listen_it',
+          limit: 100
+        })
+      })
+
+      if (!res.ok) {
+        throw new Error(`Failed to fetch notes: ${res.status} ${res.statusText}`)
+      }
+
+      return await res.json()
+    }
+
+    // Misskeyへの投稿
+    const createNote = async (payload: MappedNote[]): Promise<void> => {
+      const text = `#listen_it **今週のおすすめ楽曲はこちら！**\n${payload.map((note) => `・ ${note.url} (@${note.userName})`).join('\n')}`
+
+      const res = await fetch(`https://${env.MISSKEY_HOST}/api/notes/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${env.MISSKEY_API_TOKEN}`
+        },
+        body: JSON.stringify({
+          visibility: 'public',
+          localOnly: false,
+          text: text
+        } as RequestNotesCreate)
+      })
+
+      if (!res.ok) {
+        throw new Error(`Failed to create note: ${res.status} ${res.statusText}`)
+      }
+    }
+
+    try {
+      const notes = (await fetchTargetNotes(sinceId)).filter((item, index) => {
+          if (parseUrl(item.text) === null) return false // URLが含まれていないノートは除外
+          if (item.userId === env.MISSKEY_BOT_USER_ID) return false // Bot自身のノートは除外
+          return true
+      })
+
+      if (notes.length === 0) {
+        throw new Error('No notes found.')
+      }
+
+      const targetIndex = generateRandomNumbers(notes.length)
+
+      const mappedNotes: MappedNote[] = notes.filter((_item, index) => {
+        return targetIndex.includes(index) // 5件以上のノートがある場合、ランダムに選択されたインデックス以外は除外
+      }).map((item) => {
+        return {
+          userName: item.user.username,
+          url: parseUrl(item.text) || ''
+        }
+      })
+
+      createNote(mappedNotes)
+    } catch (error) {
+      console.error('Error:', error)
+      return
+    }
   }
 } satisfies ExportedHandler<Env>
