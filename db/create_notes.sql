@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS notes;
+CREATE TABLE IF NOT EXISTS notes (
+  id INTEGER PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  note_id TEXT NOT NULL,
+  note_text TEXT NOT NULL,
+  content_url TEXT NOT NULL
+);

@@ -7,3 +7,10 @@ export const parseUrl = (text: string) => {
 
   return result[0]
 }
+
+export const parseTextExcludeUrl = (text: string) => {
+  const url = parseUrl(text)
+  if (url === null) return text
+
+  return text.replace(url, '').trim()
+}

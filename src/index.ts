@@ -15,10 +15,12 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
+
 import type { RequestNotesCreate, ResponseNotesSearchByTag } from './types/MisskeyApi'
+import type { NoteInfo } from './types/NoteInfo'
+
 import { checkTargetHost, fetchUrlMetadata } from './utils/fetchUrlMetadata'
-import { generateRandomNumbers } from './utils/random'
-import { parseUrl } from './utils/textParser'
+import { parseUrl, parseTextExcludeUrl } from './utils/textParser'
 
 type MappedNote = {
   userName: string
@@ -59,35 +61,6 @@ export default {
       return await res.json()
     }
 
-    const mapOgpInfo = async (notes: ResponseNotesSearchByTag): Promise<MappedNote[]> => {
-      const targetNotes = notes.filter((item) => {
-        const url = parseUrl(item.text)
-        if (url === null) return false
-        if (!checkTargetHost(url)) return false
-        return true
-      }).map(((item) => {
-        return {
-          userName: item.user.username,
-          url: parseUrl(item.text) as string
-        }
-      }))
-
-      if (targetNotes.length === 0) {
-        throw new Error('No notes with URLs found.')
-      }
-
-      return Promise.all(
-        targetNotes.map(async (item) => {
-          const ogpInfo = await fetchUrlMetadata(item.url)
-
-          return {
-            userName: item.userName,
-            text: `[${ogpInfo['og:title']}](${item.url})`
-          }
-        })
-      )
-    }
-
     // Misskeyへの投稿
     const createNote = async (payload: MappedNote[]): Promise<void> => {
       const text = `#listen_it **今週のおすすめ楽曲はこちら！**\n${payload.map((note) => `・${note.text} @${note.userName}`).join('\n')}`
@@ -110,9 +83,23 @@ export default {
       }
     }
 
-    try {
-      const targetUsers: string[] = []
+    const mapNoteInfo = async (notes: ResponseNotesSearchByTag): Promise<NoteInfo[]> => {
+      return notes.filter((item) => {
+        const url = parseUrl(item.text)
+        if (url === null) return false
+        if (!checkTargetHost(url)) return false
+        return true
+      }).map(((item) => {
+        return {
+          userId: item.user.id,
+          noteId: item.id,
+          url: parseUrl(item.text) as string,
+          text: parseTextExcludeUrl(item.text),
+        }
+      }))
+    }
 
+    try {
       const response = await fetchTargetNotes(sinceId)
       console.log(`Fetched ${response.length} notes.`)
 
@@ -120,7 +107,7 @@ export default {
         throw new Error('No target notes found.')
       }
 
-      let notes = response.filter((item) => {
+      const notes = response.filter((item) => {
         if (parseUrl(item.text) === null) return false // URLが含まれていないノートは除外
         if (item.userId === env.MISSKEY_BOT_USER_ID) return false // Bot自身のノートは除外
         return true
@@ -130,28 +117,23 @@ export default {
         throw new Error('No notes (with URL) found.')
       }
 
-      if (notes.length > 5) {
-        notes = notes.filter((item) => {
-          if (targetUsers.includes(item.userId)) return false // 既に収集済みのユーザーは除外
-          targetUsers.push(item.userId)
-          return true
-        })
-      }
+      const mappedNotes = await mapNoteInfo(notes)
 
-      if (notes.length > 5) {
-        const targetIndex = generateRandomNumbers(notes.length)
+      mappedNotes.forEach(async (item) => {
+        const { success } = await env.DB.prepare(
+          'INSERT INTO notes (user_id, note_id, note_text, content_url) VALUES (?, ?, ?, ?)'
+        ).bind(item.userId, item.noteId, item.text, item.url).run()
 
-        notes = notes.filter((_item, index) => {
-          return targetIndex.includes(index) // 5件以上のノートがある場合、ランダムに選択されたインデックス以外は除外
-        })
-      }
+        if (!success) {
+          throw new Error('Database Error')
+        }
 
-      const mappedNotes = await mapOgpInfo(notes)
+        console.log(`DB insert success: ${item.noteId}`)
+      })
 
-      await createNote(mappedNotes)
       await env.note_id.put('lastNoteId', response[0].id) // 取得したノートのIDを保存
 
-      console.log(`Created note with ${mappedNotes.length} items.`)
+      console.log(`Stored note with ${mappedNotes.length} items. Last noteId is ${response[0].id}`)
     } catch (error) {
       console.error('Error:', error)
       return
