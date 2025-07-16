@@ -16,10 +16,10 @@
  */
 
 
-import type { RequestNotesCreate, ResponseNotesSearchByTag } from './types/MisskeyApi'
+import type { ResponseNotesSearchByTag } from './types/MisskeyApi'
 import type { NoteInfo } from './types/NoteInfo'
 
-import { checkTargetHost, fetchUrlMetadata } from './utils/fetchUrlMetadata'
+import { checkTargetHost } from './utils/fetchUrlMetadata'
 import { parseUrl, parseTextExcludeUrl } from './utils/textParser'
 
 type MappedNote = {
