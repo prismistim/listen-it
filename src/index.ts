@@ -61,28 +61,7 @@ export default {
       return await res.json()
     }
 
-    // Misskeyへの投稿
-    const createNote = async (payload: MappedNote[]): Promise<void> => {
-      const text = `#listen_it **今週のおすすめ楽曲はこちら！**\n${payload.map((note) => `・${note.text} @${note.userName}`).join('\n')}`
-
-      const res = await fetch(`https://${env.MISSKEY_HOST}/api/notes/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${env.MISSKEY_API_TOKEN}`
-        },
-        body: JSON.stringify({
-          visibility: 'public',
-          localOnly: false,
-          text: text
-        } as RequestNotesCreate)
-      })
-
-      if (!res.ok) {
-        throw new Error(`Failed to create note: ${res.status} ${res.statusText}`)
-      }
-    }
-
+    // 必要な情報を抽出
     const mapNoteInfo = async (notes: ResponseNotesSearchByTag): Promise<NoteInfo[]> => {
       return notes.filter((item) => {
         const url = parseUrl(item.text)
@@ -120,6 +99,7 @@ export default {
       const mappedNotes = await mapNoteInfo(notes)
 
       mappedNotes.forEach(async (item) => {
+        // D1に保存
         const { success } = await env.DB.prepare(
           'INSERT INTO notes (user_id, note_id, note_text, content_url) VALUES (?, ?, ?, ?)'
         ).bind(item.userId, item.noteId, item.text, item.url).run()
