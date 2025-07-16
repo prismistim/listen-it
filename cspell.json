@@ -1,0 +1,13 @@
+{
+    "version": "0.2",
+    "ignorePaths": [
+        "./worker-configuration.d.ts"
+    ],
+    "dictionaryDefinitions": [],
+    "dictionaries": [],
+    "words": [
+        "MISSKEY"
+    ],
+    "ignoreWords": [],
+    "import": []
+}
