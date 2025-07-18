@@ -4,12 +4,21 @@
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev --test-scheduled",
+    "dev": "bun run build && bunx wrangler pages dev ./astro/dist",
+    "dev:scheduled": "wrangler dev --test-scheduled",
+    "dev:astro": "bun run dev --cwd astro",
+    "build": "bun run build --cwd astro",
     "start": "wrangler dev --test-scheduled",
     "cf-typegen": "wrangler types"
   },
+  "workspaces": [
+    "astro"
+  ],
   "devDependencies": {
     "@biomejs/biome": "2.1.1",
+    "better-sqlite3": "^12.2.0",
+    "drizzle-kit": "^0.31.4",
+    "drizzle-orm": "^0.44.3",
     "typescript": "^5.5.2",
     "wrangler": "^4.24.1"
   }

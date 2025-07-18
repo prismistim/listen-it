@@ -15,17 +15,11 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
-
 import type { ResponseNotesSearchByTag } from './types/MisskeyApi'
 import type { NoteInfo } from './types/NoteInfo'
 
 import { checkTargetHost } from './utils/fetchUrlMetadata'
-import { parseUrl, parseTextExcludeUrl } from './utils/textParser'
-
-type MappedNote = {
-  userName: string
-  text: string
-}
+import { parseTextExcludeUrl, parseUrl } from './utils/textParser'
 
 const KV_KEY = 'lastNoteId'
 
@@ -63,19 +57,21 @@ export default {
 
     // 必要な情報を抽出
     const mapNoteInfo = async (notes: ResponseNotesSearchByTag): Promise<NoteInfo[]> => {
-      return notes.filter((item) => {
-        const url = parseUrl(item.text)
-        if (url === null) return false
-        if (!checkTargetHost(url)) return false
-        return true
-      }).map(((item) => {
-        return {
-          userId: item.user.id,
-          noteId: item.id,
-          url: parseUrl(item.text) as string,
-          text: parseTextExcludeUrl(item.text),
-        }
-      }))
+      return notes
+        .filter((item) => {
+          const url = parseUrl(item.text)
+          if (url === null) return false
+          if (!checkTargetHost(url)) return false
+          return true
+        })
+        .map((item) => {
+          return {
+            userId: item.user.id,
+            noteId: item.id,
+            url: parseUrl(item.text) as string,
+            text: parseTextExcludeUrl(item.text)
+          }
+        })
     }
 
     try {
@@ -96,13 +92,18 @@ export default {
         throw new Error('No notes (with URL) found.')
       }
 
+      const articleId = (await env.DB.prepare('INSERT INTO articles DEFAULT VALUES').run()).meta.last_row_id
+      console.log(`article created: ${articleId}`)
+
       const mappedNotes = await mapNoteInfo(notes)
 
       mappedNotes.forEach(async (item) => {
         // D1に保存
         const { success } = await env.DB.prepare(
-          'INSERT INTO notes (user_id, note_id, note_text, content_url) VALUES (?, ?, ?, ?)'
-        ).bind(item.userId, item.noteId, item.text, item.url).run()
+          'INSERT INTO notes (user_id, article_id, note_id, note_text, content_url) VALUES (?, ?, ?, ?, ?)'
+        )
+          .bind(item.userId, articleId, item.noteId, item.text, item.url)
+          .run()
 
         if (!success) {
           throw new Error('Database Error')

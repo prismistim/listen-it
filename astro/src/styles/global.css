@@ -1,0 +1,5 @@
+@import "tailwindcss";
+
+body {
+  font-family: 'Rubik Variable', 'Noto Sans JP Variable', sans-serif;
+}

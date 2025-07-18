@@ -1,0 +1,67 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { drizzle } from "drizzle-orm/d1";
+import { eq, desc, asc } from "drizzle-orm";
+import { notes } from "../../../../db/schema";
+import * as schema from "../../../../db/schema";
+
+type Note = {
+  id: string
+  user_id: string
+  note_id: string
+  note_text: string
+  content_url: string
+  created_at: string
+}
+
+const { id } = Astro.params
+
+if (!id) return
+
+const db = drizzle(Astro.locals.runtime.env.DB, { schema: schema });
+const result: Note[] = await db.select().from(notes).where(eq(notes.article_id, Number(id))).orderBy(asc(notes.article_id)).all();
+
+const fetchUser = async (userId: string) => {
+  const res = await fetch('https://moemoe.dev/api/users/show', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      userId: userId
+    })
+  })
+
+  if (!res.ok) return
+  const resBody = await res.json()
+
+  return {
+    userName: resBody.name,
+    avatarUrl: resBody.avatarUrl
+  }
+}
+
+const userMap: Record<string, { userName: string; avatarUrl: string }| undefined> = {}
+for (const item of result) {
+  if (!userMap[item.user_id]) {
+    userMap[item.user_id] = await fetchUser(item.user_id);
+  }
+}
+---
+<Layout>
+  <section>
+    <ul class="space-y-4">
+      {result.map((item) => (
+        <li class="p-4 border-b-2 border-neutral-300">
+          <div>
+            <a href={item.content_url} class="py-1 mb-1 hover:border-b-2" target="_blank">{item.content_url}</a>
+          </div>
+          <p class="mt-2">{item.note_text}</p>
+          <div>
+            <span>by {userMap[item.user_id]?.userName}</span>
+          </div>
+        </li>
+        ))}
+    </ul>
+  </section>
+</Layout>

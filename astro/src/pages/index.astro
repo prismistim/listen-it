@@ -1,0 +1,28 @@
+---
+import { drizzle } from "drizzle-orm/d1";
+import { articles } from "../../../db/schema";
+import Layout from "../layouts/Layout.astro";
+import { desc } from "drizzle-orm";
+
+type Article = {
+  article_id: number
+  created_at: string
+}
+
+const db = drizzle(Astro.locals.runtime.env.DB);
+const result: Article[] = await db.select().from(articles).orderBy(desc(articles.article_id)).all();
+---
+
+<Layout>
+  <section>
+    <ul class="space-y-4">
+      {result.map((item) => (
+        <li class="p-2">
+          <a href={`/articles/${item.article_id}`} class="text-2xl hover:border-b-2">
+            {item.created_at}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+</Layout>
