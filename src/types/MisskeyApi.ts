@@ -51,3 +51,42 @@ export type RequestNotesCreate = {
   channelId: null
   text: string
 }
+
+export type PageContentText = {
+  id: string
+  type: 'text'
+  text: string
+}
+
+export type PageContentNote = {
+  id: string
+  type: 'note'
+  detailed: boolean
+  note: string | null
+}
+
+export type PageContentImage = {
+  id: string
+  type: 'image'
+  fileId: string
+}
+
+export type PageContentSection = {
+  id: string
+  type: 'section'
+  title: string
+  children: (PageContentText | PageContentNote | PageContentImage | PageContentSection)[]
+}
+
+export type RequestPagesCreate = {
+  title: string
+  name: string
+  summary?: string
+  content: (PageContentText | PageContentNote | PageContentImage | PageContentSection)[]
+  variables: Record<string, string>[]
+  script: string
+  eyeCatchImageId?: string
+  font?: 'serif' | 'sans-serif' | 'string'
+  alignCenter?: boolean
+  hideTitleWhenPinned?: boolean
+}
