@@ -11,12 +11,13 @@ const targetHosts = [
   'bandcamp.com'
 ] as readonly string[]
 
-export const fetchUrlMetadata = async (url: string): Promise<OgpInfo> => {
+export const fetchUrlMetadata = async (url: string): Promise<OgpInfo|null> => {
   const targetUrl = new URL(url)
   const ogpInfo = {} as OgpInfo
 
-  if (!targetHosts.includes(targetUrl.hostname)) {
-    throw new Error(`Unsupported URL: ${targetUrl.hostname}`)
+  if (!checkTargetHost(url)) {
+    console.warn(`Unsupported URL: ${targetUrl.hostname}`)
+    return null
   }
 
   const res = await fetch(targetUrl.toString(), {
@@ -35,7 +36,7 @@ export const fetchUrlMetadata = async (url: string): Promise<OgpInfo> => {
       const content = element.getAttribute('content')
 
       if (property && content) {
-        ogpInfo[property] = escapeMarkdown(content)
+        ogpInfo[property] = content
       }
     }
   })
@@ -52,7 +53,7 @@ export const fetchUrlMetadata = async (url: string): Promise<OgpInfo> => {
 
 export const checkTargetHost = (url: string): boolean => {
   const targetUrl = new URL(url)
-  return targetHosts.includes(targetUrl.hostname)
+  return targetHosts.some(host => targetUrl.hostname.includes(host))
 }
 
 const escapeMarkdown = (text: string) => text.replace(/([[\]()])/g, '\\$1')
