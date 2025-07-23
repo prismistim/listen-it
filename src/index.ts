@@ -15,7 +15,17 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
-import type { RequestNotesCreate, ResponseNotesSearchByTag } from './types/MisskeyApi'
+import dayjs from 'dayjs'
+import 'dayjs/locale/ja'
+import type {
+  PageContentImage,
+  PageContentNote,
+  PageContentSection,
+  PageContentText,
+  RequestNotesCreate,
+  RequestPagesCreate,
+  ResponseNotesSearchByTag
+} from './types/MisskeyApi'
 import { checkTargetHost, fetchUrlMetadata } from './utils/fetchUrlMetadata'
 import { generateRandomNumbers } from './utils/random'
 import { parseUrl } from './utils/textParser'
@@ -26,6 +36,7 @@ type MappedNote = {
 }
 
 const KV_KEY = 'lastNoteId'
+dayjs.locale('ja')
 
 export default {
   async fetch(req) {
@@ -36,6 +47,8 @@ export default {
   // [[triggers]] configuration.
   async scheduled(_event, env, _ctx): Promise<void> {
     const sinceId = await env.note_id.get(KV_KEY) // 取得したノートのIDをどこかに保管
+    const today = dayjs().format('YYYYMMDD')
+    console.log(`Start scheduled task. Date: ${today}`)
     console.log(`Last note ID: ${sinceId}`)
 
     // Misskeyからの対象のノート取得
@@ -60,17 +73,19 @@ export default {
     }
 
     const mapOgpInfo = async (notes: ResponseNotesSearchByTag): Promise<MappedNote[]> => {
-      const targetNotes = notes.filter((item) => {
-        const url = parseUrl(item.text)
-        if (url === null) return false
-        if (!checkTargetHost(url)) return false
-        return true
-      }).map(((item) => {
-        return {
-          userName: item.user.username,
-          url: parseUrl(item.text) as string
-        }
-      }))
+      const targetNotes = notes
+        .filter((item) => {
+          const url = parseUrl(item.text)
+          if (url === null) return false
+          if (!checkTargetHost(url)) return false
+          return true
+        })
+        .map((item) => {
+          return {
+            userName: item.user.username,
+            url: parseUrl(item.text) as string
+          }
+        })
 
       if (targetNotes.length === 0) {
         throw new Error('No notes with URLs found.')
@@ -80,17 +95,71 @@ export default {
         targetNotes.map(async (item) => {
           const ogpInfo = await fetchUrlMetadata(item.url)
 
+          if (ogpInfo === null) {
+            console.warn(`No OGP metadata found for URL: ${item.url}`)
+            return {
+              userName: item.userName,
+              text: `\`${item.url}\``
+            }
+          }
+
           return {
             userName: item.userName,
-            text: `[${ogpInfo['og:title']}](${item.url})`
+            text: `\n\`${ogpInfo['og:title']}\`\n<small>\`${ogpInfo['og:description']}\`</small>\nby @${item.userName}\n${item.url}\n`
           }
         })
       )
     }
 
     // Misskeyへの投稿
-    const createNote = async (payload: MappedNote[]): Promise<void> => {
-      const text = `#listen_it **今週のおすすめ楽曲はこちら！**\n${payload.map((note) => `・${note.text} @${note.userName}`).join('\n')}`
+    const createPage = async (payload: MappedNote[]): Promise<string> => {
+      const pageName = `listen_it_${today}_${dayjs().unix()}`
+
+      const res = await fetch(`https://${env.MISSKEY_HOST}/api/pages/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${env.MISSKEY_API_TOKEN}`
+        },
+        body: JSON.stringify({
+          title: `#listen_it ${today}`,
+          name: pageName,
+          script: '今日までに登録されたおすすめ楽曲をまとめました！',
+          variables: [{}],
+          content: [
+            {
+              id: 'content-0',
+              type: 'text',
+              text: `このページは、\`${dayjs().format('YYYY年MM月DD日')}\`までに #listen_it をつけて投稿されたおすすめ楽曲をまとめたものです。以下の楽曲をぜひチェックしてみてください！`
+            },
+            {
+              id: 'content-1',
+              type: 'section',
+              title: '今週のおすすめ楽曲',
+              children: payload.map((note, index) => ({
+                id: `content-${index + 2}`,
+                type: 'text',
+                text: note.text
+              }))
+            }
+          ] as (PageContentText | PageContentNote | PageContentImage | PageContentSection)[]
+        } as RequestPagesCreate)
+      })
+
+      const resJson = await res.json()
+
+      if (!res.ok) {
+        console.error('Error creating page:', resJson)
+        throw new Error(`Failed to create note: ${res.status}`) // エラーメッセージを追加
+      }
+
+      console.log('Page created successfully:', resJson)
+      return pageName
+    }
+
+    // Misskeyへの投稿
+    const createNote = async (noteName: string): Promise<void> => {
+      const text = `#listen_it **今週のおすすめ楽曲はこちら！**\nhttps://${env.MISSKEY_HOST}/@ai/pages/${noteName}`
 
       const res = await fetch(`https://${env.MISSKEY_HOST}/api/notes/create`, {
         method: 'POST',
@@ -130,7 +199,9 @@ export default {
         throw new Error('No notes (with URL) found.')
       }
 
-      if (notes.length > 5) {
+      const postedUsers = notes.map((item) => item.userId)
+
+      if (notes.length > 5 && postedUsers.length > 5) {
         notes = notes.filter((item) => {
           if (targetUsers.includes(item.userId)) return false // 既に収集済みのユーザーは除外
           targetUsers.push(item.userId)
@@ -148,7 +219,8 @@ export default {
 
       const mappedNotes = await mapOgpInfo(notes)
 
-      await createNote(mappedNotes)
+      const noteName = await createPage(mappedNotes)
+      await createNote(noteName)
       await env.note_id.put('lastNoteId', response[0].id) // 取得したノートのIDを保存
 
       console.log(`Created note with ${mappedNotes.length} items.`)
