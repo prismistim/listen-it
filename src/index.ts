@@ -17,6 +17,7 @@
 
 import dayjs from 'dayjs'
 import 'dayjs/locale/ja'
+import { KV_KEY, MAX_FETCH_LIMIT, MAX_NOTES } from './constants'
 import type {
   PageContentImage,
   PageContentNote,
@@ -27,15 +28,14 @@ import type {
   ResponseNotesSearchByTag
 } from './types/MisskeyApi'
 import { checkTargetHost, fetchUrlMetadata } from './utils/fetchUrlMetadata'
-import { generateRandomNumbers } from './utils/random'
-import { parseUrl } from './utils/textParser'
+import { generateRandomNumbers, randomSort } from './utils/random'
+import { parseTextOnly, parseUrl } from './utils/textParser'
 
-type MappedNote = {
+type MappedNote = Readonly<{
   userName: string
   text: string
-}
+}>
 
-const KV_KEY = 'lastNoteId'
 dayjs.locale('ja')
 
 export default {
@@ -46,7 +46,7 @@ export default {
   // The scheduled handler is invoked at the interval set in our wrangler.jsonc's
   // [[triggers]] configuration.
   async scheduled(_event, env, _ctx): Promise<void> {
-    const sinceId = await env.note_id.get(KV_KEY) // 取得したノートのIDをどこかに保管
+    const sinceId = await env.note_id.get(KV_KEY)
     const today = dayjs().format('YYYYMMDD')
     console.log(`Start scheduled task. Date: ${today}`)
     console.log(`Last note ID: ${sinceId}`)
@@ -60,7 +60,7 @@ export default {
         },
         body: JSON.stringify({
           tag: 'listen_it',
-          limit: 100,
+          limit: MAX_FETCH_LIMIT,
           ...(sinceId ? { sinceId: sinceId } : {})
         })
       })
@@ -73,19 +73,13 @@ export default {
     }
 
     const mapOgpInfo = async (notes: ResponseNotesSearchByTag): Promise<MappedNote[]> => {
-      const targetNotes = notes
-        .filter((item) => {
-          const url = parseUrl(item.text)
-          if (url === null) return false
-          if (!checkTargetHost(url)) return false
-          return true
-        })
-        .map((item) => {
-          return {
-            userName: item.user.username,
-            url: parseUrl(item.text) as string
-          }
-        })
+      const targetNotes = notes.map((item) => {
+        return {
+          userName: item.user.username,
+          url: parseUrl(item.text) as string,
+          text: parseTextOnly(item.text)
+        }
+      })
 
       if (targetNotes.length === 0) {
         throw new Error('No notes with URLs found.')
@@ -105,7 +99,7 @@ export default {
 
           return {
             userName: item.userName,
-            text: `\n\`${ogpInfo['og:title']}\`\n<small>\`${ogpInfo['og:description']}\`</small>\nby @${item.userName}\n${item.url}\n`
+            text: `\n\`${ogpInfo['og:title']}\`\n<small>\`${ogpInfo['og:description'].length > 40 ? `${ogpInfo['og:description'].slice(0, 40)}...` : ogpInfo['og:description']}\`</small>\n${item.text !== '' ? `> ${item.text}\n` : ''} by @${item.userName}\n${item.url}\n`
           }
         })
       )
@@ -113,7 +107,8 @@ export default {
 
     // Misskeyへの投稿
     const createPage = async (payload: MappedNote[]): Promise<string> => {
-      const pageName = `listen_it_${today}_${dayjs().unix()}`
+      const randomId = crypto.getRandomValues(new Uint32Array(1))[0].toString(36).slice(0, 4)
+      const pageName = `listen_it_${today}_${randomId}${env.ENVIRONMENT === 'development' ? '_dev' : ''}`
 
       const res = await fetch(`https://${env.MISSKEY_HOST}/api/pages/create`, {
         method: 'POST',
@@ -130,7 +125,7 @@ export default {
             {
               id: 'content-0',
               type: 'text',
-              text: `このページは、\`${dayjs().format('YYYY年MM月DD日')}\`までに #listen_it をつけて投稿されたおすすめ楽曲をまとめたものです。以下の楽曲をぜひチェックしてみてください！`
+              text: `このページは、${dayjs().format('YYYY年MM月DD日')}までに #listen_it をつけて投稿されたおすすめ楽曲をまとめたものです。以下の楽曲をぜひチェックしてみてください！`
             },
             {
               id: 'content-1',
@@ -150,7 +145,7 @@ export default {
 
       if (!res.ok) {
         console.error('Error creating page:', resJson)
-        throw new Error(`Failed to create note: ${res.status}`) // エラーメッセージを追加
+        throw new Error(`Failed to create note: ${res.status}`)
       }
 
       console.log('Page created successfully:', resJson)
@@ -159,7 +154,7 @@ export default {
 
     // Misskeyへの投稿
     const createNote = async (noteName: string): Promise<void> => {
-      const text = `#listen_it **今週のおすすめ楽曲はこちら！**\nhttps://${env.MISSKEY_HOST}/@ai/pages/${noteName}`
+      const text = `#listen_it 今週のおすすめ楽曲はこちら！\nhttps://${env.MISSKEY_HOST}/@${env.MISSKEY_BOT_USERNAME}/pages/${noteName}`
 
       const res = await fetch(`https://${env.MISSKEY_HOST}/api/notes/create`, {
         method: 'POST',
@@ -168,20 +163,20 @@ export default {
           Authorization: `Bearer ${env.MISSKEY_API_TOKEN}`
         },
         body: JSON.stringify({
-          visibility: 'public',
+          visibility: 'home',
           localOnly: false,
           text: text
         } as RequestNotesCreate)
       })
 
+      const resJson = await res.json()
+
       if (!res.ok) {
-        throw new Error(`Failed to create note: ${res.status} ${res.statusText}`)
+        throw new Error(`Failed to create note: ${res.status} ${res.statusText}\n${resJson}`)
       }
     }
 
     try {
-      const targetUsers: string[] = []
-
       const response = await fetchTargetNotes(sinceId)
       console.log(`Fetched ${response.length} notes.`)
 
@@ -189,32 +184,41 @@ export default {
         throw new Error('No target notes found.')
       }
 
-      let notes = response.filter((item) => {
-        if (parseUrl(item.text) === null) return false // URLが含まれていないノートは除外
-        if (item.userId === env.MISSKEY_BOT_USER_ID) return false // Bot自身のノートは除外
-        return true
-      })
+      // URLを含むノートのみ抽出
+      let notes = response.filter(
+        (item) =>
+          (parseUrl(item.text) !== null || checkTargetHost(parseUrl(item.text) ?? '')) &&
+          item.userId !== env.MISSKEY_BOT_USER_ID
+      )
 
       if (notes.length === 0) {
         throw new Error('No notes (with URL) found.')
       }
 
-      const postedUsers = notes.map((item) => item.userId)
+      notes = randomSort(notes)
 
-      if (notes.length > 5 && postedUsers.length > 5) {
-        notes = notes.filter((item) => {
-          if (targetUsers.includes(item.userId)) return false // 既に収集済みのユーザーは除外
-          targetUsers.push(item.userId)
-          return true
-        })
-      }
+      console.log(`Filtered notes with URLs: ${notes.length}`)
 
-      if (notes.length > 5) {
-        const targetIndex = generateRandomNumbers(notes.length)
+      const pickedUserNotes = Array.from(new Map(notes.map((note) => [note.userId, note])).values())
 
-        notes = notes.filter((_item, index) => {
-          return targetIndex.includes(index) // 5件以上のノートがある場合、ランダムに選択されたインデックス以外は除外
-        })
+      console.log(`Picked ${pickedUserNotes.length} unique user notes.`)
+
+      if (pickedUserNotes.length >= MAX_NOTES) {
+        const targetIndex = generateRandomNumbers(notes.length).slice(0, MAX_NOTES)
+        notes = notes.filter((_item, index) => targetIndex.includes(index))
+      } else {
+        // ユーザーごとにランダムに選択し、MAX_NOTESに満たない場合は他のユーザーからランダムに選択
+        const remaining = MAX_NOTES - pickedUserNotes.length
+        const remainingNotes = notes.filter((item) => !pickedUserNotes.some((picked) => picked.id === item.id))
+
+        console.log(`Remaining notes to pick: ${remaining}, Unused notes: ${remainingNotes.length}`)
+
+        if (remainingNotes.length === 0) {
+          notes = pickedUserNotes
+        } else {
+          const targetIndex = generateRandomNumbers(remainingNotes.length).slice(0, remaining)
+          notes = [...pickedUserNotes, ...remainingNotes.filter((_item, index) => targetIndex.includes(index))]
+        }
       }
 
       const mappedNotes = await mapOgpInfo(notes)
@@ -223,7 +227,7 @@ export default {
       await createNote(noteName)
       await env.note_id.put('lastNoteId', response[0].id) // 取得したノートのIDを保存
 
-      console.log(`Created note with ${mappedNotes.length} items.`)
+      console.log(`Created page with ${mappedNotes.length} items.`)
     } catch (error) {
       console.error('Error:', error)
       return

@@ -7,3 +7,9 @@ export const parseUrl = (text: string) => {
 
   return result[0]
 }
+
+
+export const parseTextOnly = (text: string): string => {
+  // テキストからURLを除去
+  return text.replace(/https?:\/\/[^\s]+|#listen_it/g, '').trim()
+}

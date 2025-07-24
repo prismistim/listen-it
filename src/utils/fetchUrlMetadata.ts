@@ -1,17 +1,7 @@
+import { TARGET_HOSTS } from '../constants'
 import type { OgpInfo } from '../types/Ogp'
 
-const targetHosts = [
-  'soundcloud.com',
-  'on.soundcloud.com',
-  'www.youtube.com',
-  'youtu.be',
-  'music.youtube.com',
-  'open.spotify.com',
-  'music.apple.com',
-  'bandcamp.com'
-] as readonly string[]
-
-export const fetchUrlMetadata = async (url: string): Promise<OgpInfo|null> => {
+export const fetchUrlMetadata = async (url: string): Promise<OgpInfo | null> => {
   const targetUrl = new URL(url)
   const ogpInfo = {} as OgpInfo
 
@@ -52,8 +42,9 @@ export const fetchUrlMetadata = async (url: string): Promise<OgpInfo|null> => {
 }
 
 export const checkTargetHost = (url: string): boolean => {
+  if (url === '') return false
   const targetUrl = new URL(url)
-  return targetHosts.some(host => targetUrl.hostname.includes(host))
+  return TARGET_HOSTS.some((host) => targetUrl.hostname.includes(host))
 }
 
 const escapeMarkdown = (text: string) => text.replace(/([[\]()])/g, '\\$1')
