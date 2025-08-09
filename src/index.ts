@@ -163,7 +163,7 @@ export default {
           Authorization: `Bearer ${env.MISSKEY_API_TOKEN}`
         },
         body: JSON.stringify({
-          visibility: 'home',
+          visibility: 'public',
           localOnly: false,
           text: text
         } as RequestNotesCreate)
@@ -216,7 +216,10 @@ export default {
         if (remainingNotes.length === 0) {
           notes = pickedUserNotes
         } else {
-          const targetIndex = generateRandomNumbers(remainingNotes.length).slice(0, remaining)
+          const targetIndex = generateRandomNumbers(remainingNotes.length, MAX_NOTES - remainingNotes.length).slice(
+            0,
+            remaining
+          )
           notes = [...pickedUserNotes, ...remainingNotes.filter((_item, index) => targetIndex.includes(index))]
         }
       }

@@ -1,8 +1,10 @@
 import { MAX_NOTES } from '../constants'
 
-export const generateRandomNumbers = (max: number): number[] => {
+export const generateRandomNumbers = (max: number, size?: number): number[] => {
+  const length = size ?? MAX_NOTES
+
   const numbers: Set<number> = new Set()
-  while (numbers.size < MAX_NOTES) {
+  while (numbers.size < length) {
     const randomNumber = Math.floor(Math.random() * max)
     numbers.add(randomNumber)
   }
