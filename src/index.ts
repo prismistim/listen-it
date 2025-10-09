@@ -61,7 +61,7 @@ export default {
         body: JSON.stringify({
           tag: 'listen_it',
           limit: MAX_FETCH_LIMIT,
-          ...(sinceId ? { sinceId: sinceId } : {})
+          sinceDate: dayjs().subtract(7, 'd').valueOf()
         })
       })
 
@@ -99,7 +99,7 @@ export default {
 
           return {
             userName: item.userName,
-            text: `\n\`${ogpInfo['og:title']}\`\n<small>\`${ogpInfo['og:description'].length > 40 ? `${ogpInfo['og:description'].slice(0, 40)}...` : ogpInfo['og:description']}\`</small>\n${item.text !== '' ? `> ${item.text}\n` : ''} by @${item.userName}\n${item.url}\n`
+            text: `\n\`${ogpInfo['og:title']}\`\n<small>\`${ogpInfo['og:description'].length > 40 ? `${ogpInfo['og:description'].slice(0, 40)}...` : ogpInfo['og:description']}\`</small>\n${item.text !== '' && item.userName !== env.MISSKEY_BOT_USERNAME ? `> ${item.text}\n` : ''} ${ item.userName !== env.MISSKEY_BOT_USERNAME ? `by @${item.userName}` : ''} \n${item.url}\n`
           }
         })
       )
@@ -128,7 +128,7 @@ export default {
               text: `このページは、${dayjs().format('YYYY年MM月DD日')}までに #listen_it をつけて投稿されたおすすめ楽曲をまとめたものです。以下の楽曲をぜひチェックしてみてください！`
             },
             {
-              id: 'content-1',
+              id: 'content-2',
               type: 'section',
               title: '今週のおすすめ楽曲',
               children: payload.map((note, index) => ({
@@ -187,8 +187,7 @@ export default {
       // URLを含むノートのみ抽出
       let notes = response.filter(
         (item) =>
-          (parseUrl(item.text) !== null || checkTargetHost(parseUrl(item.text) ?? '')) &&
-          item.userId !== env.MISSKEY_BOT_USER_ID
+          (parseUrl(item.text) !== null && checkTargetHost(parseUrl(item.text) ?? ''))
       )
 
       if (notes.length === 0) {
@@ -204,7 +203,7 @@ export default {
       console.log(`Picked ${pickedUserNotes.length} unique user notes.`)
 
       if (pickedUserNotes.length >= MAX_NOTES) {
-        const targetIndex = generateRandomNumbers(notes.length).slice(0, MAX_NOTES)
+        const targetIndex = generateRandomNumbers(notes.length, MAX_NOTES)
         notes = notes.filter((_item, index) => targetIndex.includes(index))
       } else {
         // ユーザーごとにランダムに選択し、MAX_NOTESに満たない場合は他のユーザーからランダムに選択
@@ -216,10 +215,7 @@ export default {
         if (remainingNotes.length === 0) {
           notes = pickedUserNotes
         } else {
-          const targetIndex = generateRandomNumbers(remainingNotes.length, MAX_NOTES - remainingNotes.length).slice(
-            0,
-            remaining
-          )
+          const targetIndex = generateRandomNumbers(remainingNotes.length, remaining)
           notes = [...pickedUserNotes, ...remainingNotes.filter((_item, index) => targetIndex.includes(index))]
         }
       }

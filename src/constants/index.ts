@@ -1,4 +1,4 @@
-export const MAX_NOTES = 10
+export const MAX_NOTES = 5
 export const KV_KEY = 'lastNoteId'
 
 export const TARGET_HOSTS = [

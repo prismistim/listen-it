@@ -1,14 +1,14 @@
 import { MAX_NOTES } from '../constants'
 
-export const generateRandomNumbers = (max: number, size?: number): number[] => {
-  const length = size ?? MAX_NOTES
-
-  const numbers: Set<number> = new Set()
-  while (numbers.size < length) {
-    const randomNumber = Math.floor(Math.random() * max)
-    numbers.add(randomNumber)
+export const generateRandomNumbers = (max: number, size: number = MAX_NOTES): number[] => {
+  if (max <= 0 || size <= 0) {
+    return []
   }
-  return Array.from(numbers)
+
+  const length = Math.min(size, max)
+  const indices = Array.from({ length: max }, (_item, index) => index)
+
+  return randomSort(indices).slice(0, length)
 }
 
 export const randomSort = <T>(array: T[]): T[] => {
