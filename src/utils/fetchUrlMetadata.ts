@@ -34,10 +34,6 @@ export const fetchUrlMetadata = async (url: string): Promise<OgpInfo | null> => 
   const rewriterRes = rewriter.transform(res)
   await rewriterRes.arrayBuffer()
 
-  if (Object.keys(ogpInfo).length === 0) {
-    throw new Error('No OGP metadata found in the URL')
-  }
-
   return ogpInfo
 }
 
