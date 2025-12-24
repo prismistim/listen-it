@@ -10,7 +10,8 @@ export const TARGET_HOSTS = [
   'www.nicovideo.jp',
   'open.spotify.com',
   'music.apple.com',
-  'bandcamp.com'
+  'bandcamp.com',
+  'www.last.fm'
 ] as readonly string[]
 
 export const MAX_FETCH_LIMIT = 100
